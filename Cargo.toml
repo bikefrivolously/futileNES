@@ -1,0 +1,6 @@
+[package]
+name = "futilenes"
+version = "0.1.0"
+authors = ["Dan Martins <bikefrivolously@users.noreply.github.com>"]
+
+[dependencies]

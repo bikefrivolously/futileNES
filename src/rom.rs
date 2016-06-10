@@ -1,11 +1,11 @@
 use std::io::Write;
 use std::fs::File;
 
-
 pub struct iNESFile {
     magic: [u8; 4],
     has_trainer: bool,
-    mapper: u8,
+    pub mapper: u8,
+    pub prg_rom_cnt:    u8,
     prg_rom_size:   u32,
     chr_rom_size:   u32,
     prg_ram_size:   u32,
@@ -14,8 +14,8 @@ pub struct iNESFile {
     flags9:         u8,
     flags10:        u8,
     zeros:          [u8; 5],
-    trainer: Vec<u8>,
-    prg_rom: Vec<u8>,
+    trainer: [u8; 0x200],
+    pub prg_rom: Vec<[u8; 0x4000]>, // TODO make this a Vec of [u8; 0x4000] (Vector of 16kB pages)
     chr_rom: Vec<u8>,
     pc_inst_rom: Vec<u8>,
     pc_prom: Vec<u8>,
@@ -29,8 +29,12 @@ impl iNESFile {
         if m[0] != 'N' as u8 || m[1] != 'E' as u8 || m[2] != 'S' as u8 || m[3] != 0x1A {
             panic!("Invalid ROM!");
         }
-        let prg_rom_size = header[4] as u32 * 16384;
-        let chr_rom_size = header[5] as u32 * 8192;
+        let prg_rom_cnt = header[4];
+        let prg_rom_size = prg_rom_cnt as u32 * 16384;
+
+        let chr_rom_cnt = header[5];
+        let chr_rom_size = chr_rom_cnt as u32 * 8192;
+
         let flags6 = header[6];
         let flags7 = header[7];
         let prg_ram_size = header[8] as u32 * 8192;
@@ -40,18 +44,31 @@ impl iNESFile {
 
         let mapper = (flags7 & 0xF0) | ((flags6 & 0xF0) >> 4);
 
+        let mut pos: usize = 16;
+
         let has_trainer: bool;
-        let mut trainer: Vec<u8> = Vec::new();
-        let mut prg_rom: Vec<u8> = Vec::new();
+        let mut trainer = [0u8; 0x200];
+        let mut prg_rom: Vec<[u8; 0x4000]> = Vec::new();
         if (flags6 & 0x04) > 0 {
             has_trainer = true;
-            trainer.extend_from_slice(&bin[16..16+512]);
-            prg_rom.extend_from_slice(&bin[16+512..16+512+prg_rom_size as usize]);
+            for i in 0..0x200 {
+                trainer[i] = bin[pos];
+                pos = pos + 1;
+            }
         }
         else {
             has_trainer = false;
-            prg_rom.extend_from_slice(&bin[16..16+prg_rom_size as usize]);
         }
+
+        for i in 0..prg_rom_cnt {
+            let mut page = [0u8; 0x4000];
+            for j in 0..0x4000 {
+                page[j] = bin[pos];
+                pos = pos + 1;
+            }
+            prg_rom.push(page);
+        }
+
 
 
         iNESFile {
@@ -59,6 +76,7 @@ impl iNESFile {
             has_trainer: has_trainer,
             mapper: mapper,
             prg_rom_size: prg_rom_size,
+            prg_rom_cnt: prg_rom_cnt,
             chr_rom_size: chr_rom_size,
             flags6: flags6,
             flags7: flags7,
@@ -66,8 +84,9 @@ impl iNESFile {
             flags9: flags9,
             flags10: flags10,
             zeros: zeros,
-            trainer: vec![0],
+            trainer: trainer,
             prg_rom: prg_rom,
+            //TODO finish initializing these properly
             chr_rom: vec![0],
             pc_inst_rom: vec![0],
             pc_prom: vec![0],
@@ -89,8 +108,20 @@ impl iNESFile {
     }
 
     pub fn dump_prg_rom(&self) {
-        let mut f = File::create("prg.rom").unwrap();
-        let buf = &self.prg_rom[..];
+        let mut f = File::create("prg0.rom").unwrap();
+        let mut buf = &self.prg_rom[0][..];
         f.write_all(buf);
+
+        //f = File::create("prg1.rom").unwrap();
+        //buf = &self.prg_rom[7][..];
+        //f.write_all(buf);
     }
+}
+
+fn read_bytes(d: &Vec<u8>, start: &mut usize, len:usize) -> Vec<u8> {
+    let end: usize = *start + len;
+    let mut bytes: Vec<u8> = Vec::new();
+    bytes.extend_from_slice(&d[*start..end]);
+    *start = end;
+    bytes
 }

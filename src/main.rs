@@ -1,4 +1,7 @@
 mod rom;
+mod cpu;
+mod memory;
+mod mapper;
 
 use std::env;
 use std::path::Path;
@@ -32,7 +35,7 @@ fn main() {
     println!("ROM: {}", rom_filename);
 
     let rom_data = read_rom(rom_filename);
-    let rom = rom::iNESFile::load(rom_data);
-    rom.info();
-    rom.dump_prg_rom();
+    let mapper = mapper::Mapper::new(rom::iNESFile::load(rom_data));
+    let mut cpu = cpu::CPU::new(mapper);
+    cpu.run();
 }

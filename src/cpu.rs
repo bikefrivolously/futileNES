@@ -1,13 +1,46 @@
 use super::memory;
 use super::mapper;
 
-#[derive(Default, Debug)]
+#[derive(Default)]
+struct CpuState {
+    reg_pc: u16,
+    reg_sp: u8,
+    reg_a: u8,
+    reg_x: u8,
+    reg_y: u8,
+    reg_p: RegP, //Processor Status register: NV-BDIZC
+}
+
+impl CpuState {
+    fn store(&mut self, cpu: &CPU) {
+        self.reg_pc = cpu.reg_pc;
+        self.reg_sp = cpu.reg_sp;
+        self.reg_a = cpu.reg_a;
+        self.reg_x = cpu.reg_x;
+        self.reg_y = cpu.reg_y;
+        self.reg_p = cpu.reg_p;
+    }
+    fn get_p(&self) -> u8 {
+        let mut value: u8 = 0;
+        if self.reg_p.negative { value |= 0x80; }
+        if self.reg_p.overflow { value |= 0x40; }
+        if self.reg_p.expansion { value  |= 0x20; }
+        if self.reg_p.branch { value |= 0x10; }
+        if self.reg_p.decimal { value |= 0x08; }
+        if self.reg_p.int_disable { value |= 0x04; }
+        if self.reg_p.zero { value |= 0x02; }
+        if self.reg_p.carry { value |= 0x01; }
+        value
+    }
+}
+
+#[derive(Default, Debug, Copy, Clone)]
 struct RegP {
     carry: bool,
     zero: bool,
     int_disable: bool,
-    bcd: bool,
     decimal: bool,
+    branch: bool,
     expansion: bool,
     overflow: bool,
     negative: bool
@@ -28,7 +61,7 @@ impl CPU {
         //TODO: impl Default for CPU
         CPU {
             reg_pc: 0,
-            reg_sp: 0xFF,
+            reg_sp: 0,
             reg_a: 0,
             reg_x: 0,
             reg_y: 0,
@@ -41,10 +74,13 @@ impl CPU {
         //self.reg_pc = self.memory.readw(0xFFFC);
         // but for nestest.nes, set it to 0xC000
         self.reg_pc = 0xC000;
+        self.reg_sp = 0xFD;
         self.reg_p.expansion = true;
         self.reg_p.int_disable = true;
+        let mut state = CpuState::default();
+        let mut op_cnt = 1;
         loop {
-            print!("{:4X}   ", self.reg_pc);
+            state.store(&self);
             let opcode = self.read_inc_pc();
             let v: u16;
             match opcode {
@@ -74,6 +110,7 @@ impl CPU {
                 0x24 => { v = self.zero_page_read() ; self.bit(v) },   // BIT zero page
                 0x2C => { v = self.readw_inc_pc() ; self.bit(v) },   // BIT absolute
                 0xC9 => { v = self.read_inc_pc() as u16 ; self.cmp(v as u8) },   // CMP immediate
+                0x49 => { v = self.read_inc_pc() as u16 ; self.eor(v as u8) },   // EOR immediate
                 0x09 => { v = self.read_inc_pc() as u16 ; self.ora(v as u8) },   // ORA immediate
                 // Branch instructions
                 0xB0 => { v = self.read_inc_pc() as u16; self.bcs(v) }, // BCS relative
@@ -87,8 +124,9 @@ impl CPU {
                 0xEA => { v = 0 }, // NOP
                 _ => panic!("Unknown opcode: {:X}", opcode)
             }
-            println!("{:2X} {:4X}     A: {:2X} X: {:2X} Y: {:2X} P:{:2X} SP: {:2X} ",
-                opcode, v, self.reg_a, self.reg_x, self.reg_y, self.get_p(), self.reg_sp);
+            println!("{} {:4X} {:2X} {:4X}     A: {:2X} X: {:2X} Y: {:2X} P:{:2X} SP: {:2X} ",
+                op_cnt, state.reg_pc, opcode, v, state.reg_a, state.reg_x, state.reg_y, state.get_p(), state.reg_sp);
+            op_cnt = op_cnt + 1;
         }
     }
 
@@ -125,11 +163,11 @@ impl CPU {
     }
     fn php(&mut self) {
         let value = self.get_p();
-        self.push(value);
+        self.push(value | 0x10); // always set the break bit on the stack
     }
     fn plp(&mut self) {
         let value = self.pop();
-        self.set_p(value);
+        self.set_p(value & (!0x10)); // always clear the break bit when popping from the stack
     }
     fn pha(&mut self) {
         let value = self.reg_a;
@@ -181,10 +219,16 @@ impl CPU {
         };
     }
     fn cmp(&mut self, value: u8) {
-        let v: u8 = ((self.reg_a as i16) - (value as i16)) as u8;
-        self.set_zn(v);
-        if v > 0 { self.reg_p.carry = true; }
+        //println!("{} {}", self.reg_a, value);
+        let v: i8 = ((self.reg_a as i16) - (value as i16)) as i8;
+        //println!("{}", v);
+        self.set_zn(v as u8);
+        if v >= 0 { self.reg_p.carry = true; }
         else { self.reg_p.carry = false; }
+    }
+    fn eor(&mut self, value: u8) {
+        let v = self.reg_a ^ value;
+        self.reg_a = self.set_zn(v);
     }
     fn ora(&mut self, value: u8) {
         let v = self.reg_a | value;
@@ -231,13 +275,18 @@ impl CPU {
         }
     }
 
+    // Address mode functions. Each one should return an 8 bit value
+    fn imm(&mut self) -> u8 {
+        self.read_inc_pc()
+    }
+
     // Utility functions (not instructions)
     fn get_p(&self) -> u8 {
         let mut value: u8 = 0;
         if self.reg_p.negative { value |= 0x80; }
         if self.reg_p.overflow { value |= 0x40; }
         if self.reg_p.expansion { value  |= 0x20; }
-        if self.reg_p.bcd { value |= 0x10; }
+        if self.reg_p.branch { value |= 0x10; }
         if self.reg_p.decimal { value |= 0x08; }
         if self.reg_p.int_disable { value |= 0x04; }
         if self.reg_p.zero { value |= 0x02; }
@@ -247,8 +296,8 @@ impl CPU {
     fn set_p(&mut self, value: u8) {
         self.reg_p.negative = match value & 0x80 { 0 => false, _ => true };
         self.reg_p.overflow = match value & 0x40 { 0 => false, _ => true };
-        self.reg_p.expansion = match value & 0x20 { 0 => false, _ => true };
-        self.reg_p.bcd = match value & 0x10 { 0 => false, _ => true };
+        self.reg_p.expansion = true;
+        self.reg_p.branch = match value & 0x10 { 0 => false, _ => true };
         self.reg_p.decimal = match value & 0x08 { 0 => false, _ => true };
         self.reg_p.int_disable = match value & 0x04 { 0 => false, _ => true };
         self.reg_p.zero = match value & 0x02 { 0 => false, _ => true };

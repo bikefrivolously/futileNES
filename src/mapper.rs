@@ -1,6 +1,9 @@
 use rom;
 
 pub struct Mapper {
+    // TODO: investigate the posibility of using
+    // slices to reference arrays stored in the rom.prg_rom vector.
+    // Are there any pros and cons to this approach?
     upper_bank: [u8; 0x4000],
     lower_bank: [u8; 0x4000],
     rom: rom::iNESFile,

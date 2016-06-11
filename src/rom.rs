@@ -1,7 +1,7 @@
 use std::io::Write;
 use std::fs::File;
 
-pub struct iNESFile {
+pub struct INesFile {
     magic: [u8; 4],
     has_trainer: bool,
     pub mapper: u8,
@@ -22,8 +22,8 @@ pub struct iNESFile {
     title: Vec<u8>,
 }
 
-impl iNESFile {
-    pub fn load(bin: Vec<u8>) -> iNESFile {
+impl INesFile {
+    pub fn load(bin: Vec<u8>) -> INesFile {
         let header = &bin[0..16];
         let m = [ header[0], header[1], header[2], header[3] ];
         if m[0] != 'N' as u8 || m[1] != 'E' as u8 || m[2] != 'S' as u8 || m[3] != 0x1A {
@@ -71,7 +71,7 @@ impl iNESFile {
 
 
 
-        iNESFile {
+        INesFile {
             magic: m,
             has_trainer: has_trainer,
             mapper: mapper,
@@ -109,7 +109,7 @@ impl iNESFile {
 
     pub fn dump_prg_rom(&self) {
         let mut f = File::create("prg0.rom").unwrap();
-        let mut buf = &self.prg_rom[0][..];
+        let buf = &self.prg_rom[0][..];
         f.write_all(buf);
 
         //f = File::create("prg1.rom").unwrap();

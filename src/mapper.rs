@@ -6,11 +6,11 @@ pub struct Mapper {
     // Are there any pros and cons to this approach?
     upper_bank: [u8; 0x4000],
     lower_bank: [u8; 0x4000],
-    rom: rom::iNESFile,
+    rom: rom::INesFile,
 }
 
 impl Mapper {
-    pub fn new(rom: rom::iNESFile) -> Mapper {
+    pub fn new(rom: rom::INesFile) -> Mapper {
         let mut up = [0u8; 0x4000];
         let mut lo = [0u8; 0x4000];
 

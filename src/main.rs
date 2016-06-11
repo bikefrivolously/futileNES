@@ -35,7 +35,7 @@ fn main() {
     println!("ROM: {}", rom_filename);
 
     let rom_data = read_rom(rom_filename);
-    let mapper = mapper::Mapper::new(rom::iNESFile::load(rom_data));
+    let mapper = mapper::Mapper::new(rom::INesFile::load(rom_data));
     let mut cpu = cpu::CPU::new(mapper);
     cpu.run();
 }

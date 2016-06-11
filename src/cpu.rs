@@ -34,6 +34,45 @@ impl CpuState {
     }
 }
 
+trait AddressingMode {
+    fn read(&self, cpu: &mut CPU) -> u8;
+    fn write(&self, cpu: &mut CPU, value: u8);
+}
+
+struct ImmediateAddressingMode;
+impl AddressingMode for ImmediateAddressingMode {
+    fn read(&self, cpu: &mut CPU) -> u8 {
+        cpu.read_inc_pc()
+    }
+    fn write(&self, _cpu: &mut CPU, _value: u8) {
+        panic!("write is not possible in immediate addressing");
+    }
+}
+
+struct AccumulatorAddressingMode;
+impl AddressingMode for AccumulatorAddressingMode {
+    fn read(&self, cpu: &mut CPU) -> u8 {
+        cpu.reg_a
+    }
+    fn write(&self, cpu: &mut CPU, value: u8) {
+        cpu.reg_a = value;
+    }
+}
+
+struct MemoryAddressingMode {
+    address: u16,
+}
+
+impl AddressingMode for MemoryAddressingMode {
+    fn read(&self, cpu: &mut CPU) -> u8 {
+        cpu.memory.read(self.address)
+    }
+    fn write(&self, cpu: &mut CPU, value: u8) {
+        cpu.memory.write(self.address, value);
+    }
+}
+
+
 #[derive(Default, Debug, Copy, Clone)]
 struct RegP {
     carry: bool,
@@ -82,73 +121,447 @@ impl CPU {
         loop {
             state.store(&self);
             let opcode = self.read_inc_pc();
-            let v: u16;
             match opcode {
-                // Load & Store instructions
-                0xA9 => { v = self.read_inc_pc() as u16; self.lda(v as u8) },    // LDA immediate
-                0xA2 => { v = self.read_inc_pc() as u16; self.ldx(v as u8) },    // LDX immediate
-                0x85 => { v = self.zero_page_read(); self.sta(v) },  // STA zero page
-                0x86 => { v = self.zero_page_read(); self.stx(v) },  // STX zero page
-                // Jump instructions
-                0x4C => { v = self.readw_inc_pc(); self.jmp(v) },   // JMP absolute
-                0x20 => { v = self.readw_inc_pc(); self.jsr(v) },   // JSR absolute
-                0x60 => { v = 0; self.rts() },   // RTS implied
-                // Processor status instructions
-                0x08 => { v = 0 ; self.php() },   // PHP implied
-                0x28 => { v = 0 ; self.plp() },   // PLP implied
-                0x48 => { v = 0 ; self.pha() },   // PHA implied
-                0x68 => { v = 0 ; self.pla() },   // PLA implied
-                0x18 => { v = 0 ; self.clc() },   // CLC implied
-                0xD8 => { v = 0 ; self.cld() },   // CLD implied
-                0x58 => { v = 0 ; self.cli() },   // CLI implied
-                0xB8 => { v = 0 ; self.clv() },   // CLV implied
-                0x38 => { v = 0 ; self.sec() },   // SEC implied
-                0xF8 => { v = 0 ; self.sed() },   // SED implied
-                0x78 => { v = 0 ; self.sei() },   // SEI implied
-                // Test instructions
-                0x29 => { v = self.read_inc_pc() as u16 ; self.and(v as u8) },   // AND immediate
-                0x24 => { v = self.zero_page_read() ; self.bit(v) },   // BIT zero page
-                0x2C => { v = self.readw_inc_pc() ; self.bit(v) },   // BIT absolute
-                0xC9 => { v = self.read_inc_pc() as u16 ; self.cmp(v as u8) },   // CMP immediate
-                0x49 => { v = self.read_inc_pc() as u16 ; self.eor(v as u8) },   // EOR immediate
-                0x09 => { v = self.read_inc_pc() as u16 ; self.ora(v as u8) },   // ORA immediate
-                // Branch instructions
-                0xB0 => { v = self.read_inc_pc() as u16; self.bcs(v) }, // BCS relative
-                0x90 => { v = self.read_inc_pc() as u16; self.bcc(v) }, // BCC relative
-                0xF0 => { v = self.read_inc_pc() as u16; self.beq(v) }, // BEQ relative
-                0xD0 => { v = self.read_inc_pc() as u16; self.bne(v) }, // BNE relative
-                0x30 => { v = self.read_inc_pc() as u16; self.bmi(v) }, // BMI relative
-                0x10 => { v = self.read_inc_pc() as u16; self.bpl(v) }, // BPL relative
-                0x50 => { v = self.read_inc_pc() as u16; self.bvc(v) }, // BVC relative
-                0x70 => { v = self.read_inc_pc() as u16; self.bvs(v) }, // BVS relative
-                0xEA => { v = 0 }, // NOP
-                _ => panic!("Unknown opcode: {:X}", opcode)
+                0x69 => { let v = self.imm(); self.adc(v) },
+                0x65 => { let v = self.zp();  self.adc(v) },
+                0x75 => { let v = self.zp_x();  self.adc(v) },
+                0x6D => { let v = self.abs(); self.adc(v) },
+                0x7D => { let v = self.abs_x();  self.adc(v) },
+                0x79 => { let v = self.abs_y();  self.adc(v) },
+                0x61 => { let v = self.indirect_x();  self.adc(v) },
+                0x71 => { let v = self.indirect_y();  self.adc(v) },
+
+                0x29 => { let v = self.imm(); self.and(v) },
+                0x25 => { let v = self.zp(); self.and(v) },
+                0x35 => { let v = self.zp_x(); self.and(v) },
+                0x2D => { let v = self.abs(); self.and(v) },
+                0x3D => { let v = self.abs_x(); self.and(v) },
+                0x39 => { let v = self.abs_y(); self.and(v) },
+                0x21 => { let v = self.indirect_x(); self.and(v) },
+                0x31 => { let v = self.indirect_y(); self.and(v) },
+
+                0x0A => { let v = self.acc(); self.asl(v) },
+                0x06 => { let v = self.zp();  self.asl(v) },
+                0x16 => { let v = self.zp_x();  self.asl(v) },
+                0x0E => { let v = self.abs(); self.asl(v) },
+                0x1E => { let v = self.abs_x(); self.asl(v) },
+
+                0x90 => { self.bcc() },
+                0xB0 => { self.bcs() },
+                0xF0 => { self.beq() },
+                0x30 => { self.bmi() },
+                0xD0 => { self.bne() },
+                0x10 => { self.bpl() },
+                0x50 => { self.bvc() },
+                0x70 => { self.bvs() },
+
+                0x24 => { let v = self.zp() ; self.bit(v) },
+                0x2C => { let v = self.abs() ; self.bit(v) },
+
+                0x00 => { self.brk() },
+
+                0x18 => { self.clc() },
+                0xD8 => { self.cld() },
+                0x58 => { self.cli() },
+                0xB8 => { self.clv() },
+
+                0xC9 => { let v = self.imm(); self.cmp(v) },
+                0xC5 => { let v = self.zp();  self.cmp(v) },
+                0xD5 => { let v = self.zp_x(); self.cmp(v) },
+                0xCD => { let v = self.abs(); self.cmp(v) },
+                0xDD => { let v = self.abs_x();  self.cmp(v) },
+                0xD9 => { let v = self.abs_y(); self.cmp(v) },
+                0xC1 => { let v = self.indirect_x(); self.cmp(v) },
+                0xD1 => { let v = self.indirect_y();  self.cmp(v) },
+
+                0xE0 => { let v = self.imm(); self.cpx(v) },
+                0xE4 => { let v = self.zp();  self.cpx(v) },
+                0xEC => { let v = self.abs(); self.cpx(v) },
+
+                0xC0 => { let v = self.imm(); self.cpy(v) },
+                0xC4 => { let v = self.zp();  self.cpy(v) },
+                0xCC => { let v = self.abs(); self.cpy(v) },
+
+                0xC6 => { let v = self.zp(); self.dec(v) },
+                0xD6 => { let v = self.zp_x(); self.dec(v) },
+                0xCE => { let v = self.abs(); self.dec(v) },
+                0xDE => { let v = self.abs_x(); self.dec(v) },
+
+                0xCA => { self.dex(); },
+
+                0x88 => { self.dey() },
+
+                0x49 => { let v = self.imm(); self.eor(v) },
+                0x45 => { let v = self.zp(); self.eor(v) },
+                0x55 => { let v = self.zp_x(); self.eor(v) },
+                0x4D => { let v = self.abs(); self.eor(v) },
+                0x5D => { let v = self.abs_x(); self.eor(v) },
+                0x59 => { let v = self.abs_y(); self.eor(v) },
+                0x41 => { let v = self.indirect_x(); self.eor(v) },
+                0x51 => { let v = self.indirect_y(); self.eor(v) },
+
+                0xE6 => { let v = self.zp(); self.inc(v) },
+                0xF6 => { let v = self.zp_x(); self.inc(v) },
+                0xEE => { let v = self.abs(); self.inc(v) },
+                0xFE => { let v = self.abs_x(); self.inc(v) },
+
+                0xE8 => { self.inx(); },
+
+                0xC8 => { self.iny() },
+
+                0x4C => { self.jmp() },
+                0x6C => { self.jmp_indirect() },
+
+                0x20 => { self.jsr() },
+
+                0xA9 => { let v = self.imm(); self.lda(v) },
+                0xA5 => { let v = self.zp();  self.lda(v) },
+                0xB5 => { let v = self.zp_x();  self.lda(v) },
+                0xAD => { let v = self.abs(); self.lda(v) },
+                0xBD => { let v = self.abs_x(); self.lda(v) },
+                0xB9 => { let v = self.abs_y(); self.lda(v) },
+                0xA1 => { let v = self.indirect_x(); self.lda(v) },
+                0xB1 => { let v = self.indirect_y(); self.lda(v) },
+
+                0xA2 => { let v = self.imm(); self.ldx(v) },
+                0xA6 => { let v = self.zp();  self.ldx(v) },
+                0xB6 => { let v = self.zp_y();  self.ldx(v) },
+                0xAE => { let v = self.abs(); self.ldx(v) },
+                0xBE => { let v = self.abs_y(); self.ldx(v) },
+
+                0xA0 => { let v = self.imm(); self.ldy(v) },
+                0xA4 => { let v = self.zp();  self.ldy(v) },
+                0xB4 => { let v = self.zp_x();  self.ldy(v) },
+                0xAC => { let v = self.abs(); self.ldy(v) },
+                0xBC => { let v = self.abs_x(); self.ldy(v) },
+
+                0x4A => { let v = self.acc(); self.lsr(v) },
+                0x46 => { let v = self.zp();  self.lsr(v) },
+                0x56 => { let v = self.zp_x();  self.lsr(v) },
+                0x4E => { let v = self.abs(); self.lsr(v) },
+                0x5E => { let v = self.abs_x(); self.lsr(v) },
+
+                0xEA => {  }, // NOP
+
+                0x09 => { let v = self.imm(); self.ora(v) },
+                0x05 => { let v = self.zp(); self.ora(v) },
+                0x15 => { let v = self.zp_x(); self.ora(v) },
+                0x0D => { let v = self.abs(); self.ora(v) },
+                0x1D => { let v = self.abs_x(); self.ora(v) },
+                0x19 => { let v = self.abs_y(); self.ora(v) },
+                0x01 => { let v = self.indirect_x(); self.ora(v) },
+                0x11 => { let v = self.indirect_y(); self.ora(v) },
+
+                0x48 => { self.pha() },
+
+                0x08 => { self.php() },
+
+                0x68 => { self.pla() },
+
+                0x28 => { self.plp() },
+
+                0x2A => { let v = self.acc(); self.rol(v) },
+                0x26 => { let v = self.zp();  self.rol(v) },
+                0x36 => { let v = self.zp_x();  self.rol(v) },
+                0x2E => { let v = self.abs(); self.rol(v) },
+                0x3E => { let v = self.abs_x(); self.rol(v) },
+
+                0x6A => { let v = self.acc(); self.ror(v) },
+                0x66 => { let v = self.zp();  self.ror(v) },
+                0x76 => { let v = self.zp_x();  self.ror(v) },
+                0x6E => { let v = self.abs(); self.ror(v) },
+                0x7E => { let v = self.abs_x(); self.ror(v) },
+
+                0x40 => { self.rti() },
+
+                0x60 => { self.rts() },
+
+                0xE9 => { let v = self.imm(); self.sbc(v) },
+                0xE5 => { let v = self.zp();  self.sbc(v) },
+                0xF5 => { let v = self.zp_x();  self.sbc(v) },
+                0xED => { let v = self.abs(); self.sbc(v) },
+                0xFD => { let v = self.abs_x(); self.sbc(v) },
+                0xF9 => { let v = self.abs_y(); self.sbc(v) },
+                0xE1 => { let v = self.indirect_x(); self.sbc(v) },
+                0xF1 => { let v = self.indirect_y(); self.sbc(v) },
+
+                0x38 => { self.sec() },
+
+                0xF8 => { self.sed() },
+
+                0x78 => { self.sei() },
+
+                0x85 => { let v = self.zp(); self.sta(v) },
+                0x95 => { let v = self.zp_x(); self.sta(v) },
+                0x8D => { let v = self.abs(); self.sta(v) },
+                0x9D => { let v = self.abs_x(); self.sta(v) },
+                0x99 => { let v = self.abs_y(); self.sta(v) },
+                0x81 => { let v = self.indirect_x(); self.sta(v) },
+                0x91 => { let v = self.indirect_y(); self.sta(v) },
+
+                0x86 => { let v = self.zp();  self.stx(v) },
+                0x96 => { let v = self.zp_y();  self.stx(v) },
+                0x8E => { let v = self.abs(); self.stx(v) },
+
+                0x84 => { let v = self.zp();  self.sty(v) },
+                0x94 => { let v = self.zp_x();  self.sty(v) },
+                0x8C => { let v = self.abs(); self.sty(v) },
+
+                0xAA => { self.tax() },
+
+                0xA8 => { self.tay() },
+
+                0xBA => { self.tsx() },
+
+                0x8A => { self.txa() },
+
+                0x9A => { self.txs() },
+
+                0x98 => { self.tya() },
+
+                0x80 => { self.read_inc_pc(); },
+
+                0x82 => { self.read_inc_pc(); },
+                0xC2 => { self.read_inc_pc(); },
+                0xE2 => { self.read_inc_pc(); },
+
+                0x04 => { self.read_inc_pc(); },
+                0x44 => { self.read_inc_pc(); },
+                0x64 => { self.read_inc_pc(); },
+
+                0x89 => { self.read_inc_pc(); },
+
+                0x0C => { self.readw_inc_pc(); },
+
+                0x14 => { self.read_inc_pc(); },
+                0x34 => { self.read_inc_pc(); },
+                0x54 => { self.read_inc_pc(); },
+                0x74 => { self.read_inc_pc(); },
+                0xD4 => { self.read_inc_pc(); },
+                0xF4 => { self.read_inc_pc(); },
+
+                0x1A => {},
+                0x3A => {},
+                0x5A => {},
+                0x7A => {},
+                0xDA => {},
+                0xFA => {},
+
+                0x1C => { self.readw_inc_pc(); },
+                0x3C => { self.readw_inc_pc(); },
+                0x5C => { self.readw_inc_pc(); },
+                0x7C => { self.readw_inc_pc(); },
+                0xDC => { self.readw_inc_pc(); },
+                0xFC => { self.readw_inc_pc(); },
+
+                _ => println!("Unknown opcode: {:X}", opcode)
             }
-            println!("{} {:4X} {:2X} {:4X}     A: {:2X} X: {:2X} Y: {:2X} P:{:2X} SP: {:2X} ",
-                op_cnt, state.reg_pc, opcode, v, state.reg_a, state.reg_x, state.reg_y, state.get_p(), state.reg_sp);
+            println!("{} {:4X} {:2X} UV     A: {:2X} X: {:2X} Y: {:2X} P:{:2X} SP: {:2X} ",
+                op_cnt, state.reg_pc, opcode, state.reg_a, state.reg_x, state.reg_y, state.get_p(), state.reg_sp);
             op_cnt = op_cnt + 1;
         }
     }
 
     // Instructions start here!
-    fn lda(&mut self, value: u8) {
-        self.reg_a = self.set_zn(value);
+    fn brk(&mut self) {
+        let pc = self.reg_pc + 1;
+        let pch = ((pc & 0xFF00) >> 8) as u8;
+        let pcl = (pc & 0x00FF) as u8;
+        self.push(pch);
+        self.push(pcl);
+        self.php();
+        self.reg_pc = 0xFFFE;
     }
-    fn ldx(&mut self, value: u8) {
+    fn inc<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
+        let result = (value as u16 + 1) as u8;
+        self.set_zn(result);
+        am.write(self, result);
+    }
+    fn dec<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
+        let result = (value as i16 - 1) as u8;
+        self.set_zn(result);
+        am.write(self, result);
+    }
+
+    fn asl<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
+        if value & 0x80 != 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+        let result = value << 1;
+        self.set_zn(result);
+        am.write(self, result);
+    }
+    fn lsr<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
+        if value & 0x01 != 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+        let result = value >> 1;
+        self.set_zn(result);
+        am.write(self, result);
+    }
+    fn rol<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
+        let bit0 = match self.reg_p.carry {
+            true => 0x01,
+            false => 0x00,
+        };
+        if value & 0x80 != 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+        let result = (value << 1) | bit0;
+        self.set_zn(result);
+        am.write(self, result);
+    }
+    fn ror<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
+        let bit7 = match self.reg_p.carry {
+            true => 0x80,
+            false => 0x00,
+        };
+        if value & 0x01 != 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+        let result = (value >> 1) | bit7;
+        self.set_zn(result);
+        am.write(self, result);
+    }
+    fn rti(&mut self) {
+        let p = self.pop();
+        self.set_p(p);
+        let pcl = self.pop();
+        let pch = self.pop();
+        self.reg_pc = (pch as u16) << 8 | pcl as u16;
+    }
+    fn tax(&mut self) {
+        let value = self.reg_a;
         self.reg_x = self.set_zn(value);
     }
-    fn sta(&mut self, address: u16) {
+    fn tay(&mut self) {
         let value = self.reg_a;
-        self.memory.write(address, value);
+        self.reg_y = self.set_zn(value);
     }
-    fn stx(&mut self, address: u16) {
+    fn tsx(&mut self) {
+        let value = self.reg_sp;
+        self.reg_x = self.set_zn(value);
+    }
+    fn txa(&mut self) {
         let value = self.reg_x;
-        self.memory.write(address, value);
+        self.reg_a = self.set_zn(value);
     }
-    fn jmp(&mut self, address: u16) {
+    fn txs(&mut self) {
+        let value = self.reg_x;
+        self.reg_sp = value;
+    }
+    fn tya(&mut self) {
+        let value = self.reg_y;
+        self.reg_a = self.set_zn(value);
+    }
+    fn lda<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
+        self.reg_a = self.set_zn(value);
+    }
+    fn ldx<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
+        self.reg_x = self.set_zn(value);
+    }
+    fn ldy<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
+        self.reg_y = self.set_zn(value);
+    }
+    fn sta<AM: AddressingMode>(&mut self, am: AM) {
+        let value = self.reg_a;
+        am.write(self, value);
+    }
+    fn stx<AM: AddressingMode>(&mut self, am: AM) {
+        let value = self.reg_x;
+        am.write(self, value);
+    }
+    fn sty<AM: AddressingMode>(&mut self, am: AM) {
+        let value = self.reg_y;
+        am.write(self, value);
+    }
+    fn inx(&mut self) {
+        let result = self.reg_x as u16 + 1;
+        self.reg_x = self.set_zn(result as u8);
+    }
+    fn iny(&mut self) {
+        let result = self.reg_y as u16 + 1;
+        self.reg_y = self.set_zn(result as u8);
+    }
+    fn dex(&mut self) {
+        let result = self.reg_x as i16 - 1;
+        self.reg_x = self.set_zn(result as u8);
+    }
+    fn dey(&mut self) {
+        let result = self.reg_y as i16 - 1;
+        self.reg_y = self.set_zn(result as u8);
+    }
+    fn adc<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
+        let mut tmp_result = self.reg_a as u16 + value as u16;
+
+        if self.reg_p.carry { tmp_result += 1; }
+
+        if tmp_result & 0x100 != 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+
+        let result = tmp_result as u8;
+
+        if (self.reg_a & 0x80) == 0 && (value & 0x80) == 0 && (result & 0x80) != 0 {
+            self.reg_p.overflow = true;
+        }
+        else if (self.reg_a & 0x80) != 0 && (value & 0x80) != 0 && (result & 0x80) == 0 {
+            self.reg_p.overflow = true;
+        }
+        else {
+            self.reg_p.overflow = false;
+        }
+        self.reg_a = self.set_zn(result);
+    }
+    fn sbc<AM: AddressingMode>(&mut self, am: AM) {
+        let a = self.reg_a;
+        let m = am.read(self);
+        let mut result = a as i16 - m as i16;
+        if !self.reg_p.carry { result -= 1; }
+
+        if result & 0x100 == 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+
+        let result = result as u8;
+
+        if (a & 0x80) == 0 && (m & 0x80) != 0 && (result & 0x80) != 0 {
+            self.reg_p.overflow = true;
+        }
+        else if (a & 0x80) != 0 && (m & 0x80) == 0 && (result & 0x80) == 0 {
+            self.reg_p.overflow = true;
+        }
+        else {
+            self.reg_p.overflow = false;
+        }
+        self.reg_a = self.set_zn(result);
+    }
+    fn jmp(&mut self) {
+        let address = self.memory.readw(self.reg_pc);
         self.reg_pc = address;
     }
-    fn jsr(&mut self, address: u16) {
+    fn jmp_indirect(&mut self) {
+        let indirect_address = self.memory.readw(self.reg_pc);
+        let address: u16;
+        if indirect_address & 0x00FF == 0x00FF {
+            // implement CPU bug
+            let page = indirect_address & 0xFF00;
+            let lsb = self.memory.read(page | indirect_address & 0x00FF);
+            let msb = self.memory.read(page);
+            address = ((msb as u16) << 8) | lsb as u16;
+            println!("JMP CPU BUG: {:4X} {:4X} {:4X} {:4X} {:4X} {:4X}", indirect_address, page, page | indirect_address & 0x00FF, lsb, msb, address);
+        }
+        else {
+            address = self.memory.readw(indirect_address);
+        }
+        self.reg_pc = address;
+    }
+    fn jsr(&mut self) {
+        let address = self.readw_inc_pc();
         self.reg_pc = self.reg_pc - 1;
         let pc_hi: u8 = ((self.reg_pc & 0xFF00) >> 8) as u8;
         let pc_lo: u8 = (self.reg_pc & 0x00FF) as u8;
@@ -198,13 +611,13 @@ impl CPU {
     fn sei(&mut self) {
         self.reg_p.int_disable = true;
     }
-    fn and(&mut self, value: u8) {
-        let v = self.reg_a & value;
-        self.reg_a = self.set_zn(v);
+    fn and<AM: AddressingMode>(&mut self, am: AM) {
+        let value = self.reg_a & am.read(self);
+        self.reg_a = self.set_zn(value);
     }
-    fn bit(&mut self, address: u16) {
+    fn bit<AM: AddressingMode>(&mut self, am: AM) {
         let a = self.reg_a;
-        let value = self.memory.read(address);
+        let value = am.read(self);
         self.reg_p.zero = match a & value {
             0 => true,
             _ => false
@@ -218,66 +631,126 @@ impl CPU {
             _ => true
         };
     }
-    fn cmp(&mut self, value: u8) {
-        //println!("{} {}", self.reg_a, value);
-        let v: i8 = ((self.reg_a as i16) - (value as i16)) as i8;
-        //println!("{}", v);
-        self.set_zn(v as u8);
-        if v >= 0 { self.reg_p.carry = true; }
-        else { self.reg_p.carry = false; }
+    fn cmp<AM: AddressingMode>(&mut self, am: AM) {
+        let register = self.reg_a;
+        self.compare(register, am);
     }
-    fn eor(&mut self, value: u8) {
+    fn cpx<AM: AddressingMode>(&mut self, am: AM) {
+        let register = self.reg_x;
+        self.compare(register, am);
+    }
+    fn cpy<AM: AddressingMode>(&mut self, am: AM) {
+        let register = self.reg_y;
+        self.compare(register, am);
+    }
+    fn compare<AM: AddressingMode>(&mut self, register: u8, am: AM) {
+        let value = am.read(self);
+        //println!("{} {}", self.reg_a, value);
+        let v = (register as i16) - (value as i16);
+
+        if (v & 0x100) == 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+
+        self.set_zn(v as u8);
+    }
+    fn eor<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
         let v = self.reg_a ^ value;
         self.reg_a = self.set_zn(v);
     }
-    fn ora(&mut self, value: u8) {
+    fn ora<AM: AddressingMode>(&mut self, am: AM) {
+        let value = am.read(self);
         let v = self.reg_a | value;
         self.reg_a = self.set_zn(v);
     }
-    fn bcs(&mut self, rel: u16) {
+    fn bcs(&mut self) {
+        let rel = self.read_inc_pc() as i8;
         if self.reg_p.carry == true {
             self.branch(rel);
         }
     }
-    fn bcc(&mut self, rel: u16) {
+    fn bcc(&mut self) {
+        let rel = self.read_inc_pc() as i8;
         if self.reg_p.carry == false {
             self.branch(rel);
         }
     }
-    fn beq(&mut self, rel: u16) {
+    fn beq(&mut self) {
+        let rel = self.read_inc_pc() as i8;
         if self.reg_p.zero == true {
             self.branch(rel);
         }
     }
-    fn bne(&mut self, rel: u16) {
+    fn bne(&mut self) {
+        let rel = self.read_inc_pc() as i8;
         if self.reg_p.zero == false {
             self.branch(rel);
         }
     }
-    fn bmi(&mut self, rel: u16) {
+    fn bmi(&mut self) {
+        let rel = self.read_inc_pc() as i8;
         if self.reg_p.negative == true {
             self.branch(rel);
         }
     }
-    fn bpl(&mut self, rel: u16) {
+    fn bpl(&mut self) {
+        let rel = self.read_inc_pc() as i8;
         if self.reg_p.negative == false {
             self.branch(rel);
         }
     }
-    fn bvc(&mut self, rel: u16) {
+    fn bvc(&mut self) {
+        let rel = self.read_inc_pc() as i8;
         if self.reg_p.overflow == false {
             self.branch(rel);
         }
     }
-    fn bvs(&mut self, rel: u16) {
+    fn bvs(&mut self) {
+        let rel = self.read_inc_pc() as i8;
         if self.reg_p.overflow == true {
             self.branch(rel);
         }
     }
 
-    // Address mode functions. Each one should return an 8 bit value
-    fn imm(&mut self) -> u8 {
-        self.read_inc_pc()
+    // Address mode functions. Each one should return an AddressingMode
+    fn acc(&mut self) -> AccumulatorAddressingMode {
+        AccumulatorAddressingMode
+    }
+    fn imm(&mut self) -> ImmediateAddressingMode {
+        ImmediateAddressingMode
+    }
+    fn zp(&mut self) -> MemoryAddressingMode {
+        MemoryAddressingMode { address: self.read_inc_pc() as u16 }
+    }
+    fn zp_x(&mut self) -> MemoryAddressingMode {
+        MemoryAddressingMode { address: (self.read_inc_pc() as u16 + self.reg_x as u16) & 0x00FF }
+    }
+    fn zp_y(&mut self) -> MemoryAddressingMode {
+        MemoryAddressingMode { address: (self.read_inc_pc() as u16 + self.reg_y as u16) & 0x00FF }
+    }
+    fn abs(&mut self) -> MemoryAddressingMode {
+        MemoryAddressingMode { address: self.readw_inc_pc() }
+    }
+    fn abs_x(&mut self) -> MemoryAddressingMode {
+        MemoryAddressingMode { address: self.readw_inc_pc() + self.reg_x as u16 }
+    }
+    fn abs_y(&mut self) -> MemoryAddressingMode {
+        MemoryAddressingMode { address: (self.readw_inc_pc() as u32 + self.reg_y as u32) as u16 }
+    }
+    fn indirect_x(&mut self) -> MemoryAddressingMode {
+        let x = self.reg_x;
+        let ial = self.read_inc_pc();
+        let address = self.memory.readw((ial + x) as u16);
+        MemoryAddressingMode { address: address }
+    }
+    fn indirect_y(&mut self) -> MemoryAddressingMode {
+        let y = self.reg_y;
+        let ial = self.read_inc_pc();
+        println!("Indirect Y:");
+        println!("IAL: {:X} Y: {:X} Indirect: {:X}", ial as u16, y as u16, self.memory.readw_zp(ial as u16));
+        let address = (self.memory.readw_zp(ial as u16) as u32) + y as u32;
+        println!("Indirect Y address: {:X} {:X}", address, address as u16);
+        MemoryAddressingMode { address: address as u16 }
     }
 
     // Utility functions (not instructions)
@@ -303,8 +776,10 @@ impl CPU {
         self.reg_p.zero = match value & 0x02 { 0 => false, _ => true };
         self.reg_p.carry = match value & 0x01 { 0 => false, _ => true };
     }
-    fn branch(&mut self, rel: u16) {
-        self.reg_pc = (self.reg_pc as i32 + rel as i32) as u16;
+    fn branch(&mut self, rel: i8) {
+        let newpc = (self.reg_pc as i32 + rel as i32) as u16;
+        println!("BRANCH: {:X} {} {:X}", self.reg_pc, rel, newpc);
+        self.reg_pc = newpc;
     }
     fn read_inc_pc(&mut self) -> u8 {
         let value = self.memory.read(self.reg_pc);
@@ -316,26 +791,19 @@ impl CPU {
         self.reg_pc = self.reg_pc + 2;
         value
     }
-    fn write_inc_pc(&mut self, address: u16, value: u8) {
-        self.memory.write(address, value);
-        self.reg_pc = self.reg_pc + 1;
-    }
-    fn zero_page_read(&mut self) -> u16 {
-        (0x00 << 8) | self.read_inc_pc() as u16
-    }
     fn set_zn(&mut self, value: u8) -> u8 {
         self.reg_p.zero = (value == 0) as bool;
         self.reg_p.negative = ((value & 0x80) != 0) as bool;
         value
     }
     fn push(&mut self, value: u8) {
-        let address = (0x01 << 8) | self.reg_sp as u16;
+        let address = 0x0100 | self.reg_sp as u16;
         self.memory.write(address, value);
         self.reg_sp = self.reg_sp - 1;
     }
     fn pop(&mut self) -> u8 {
         self.reg_sp = self.reg_sp + 1;
-        let address = (0x01 << 8) | self.reg_sp as u16;
+        let address = 0x0100 | self.reg_sp as u16;
         self.memory.read(address)
     }
 }

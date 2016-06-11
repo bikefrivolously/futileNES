@@ -49,4 +49,15 @@ impl MemMap {
     pub fn readw(&self, address: u16) -> u16 {
          ((self.read(address + 1) as u16) << 8) | (self.read(address) as u16)
     }
+    pub fn readw_zp(&self, address: u16) -> u16 {
+        if address > 0xFF {
+            panic!("readw_zp address should be less than or equal to 0x00FF");
+        }
+        if address == 0xFF {
+            ((self.read(0x0000) as u16) << 8) | (self.read(0x00FF) as u16)
+        }
+        else {
+            ((self.read(address + 1) as u16) << 8) | (self.read(address) as u16)
+        }
+    }
 }

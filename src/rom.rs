@@ -1,6 +1,7 @@
 use std::io::Write;
 use std::fs::File;
 
+#[allow(dead_code)]
 pub struct INesFile {
     magic: [u8; 4],
     has_trainer: bool,
@@ -60,7 +61,7 @@ impl INesFile {
             has_trainer = false;
         }
 
-        for i in 0..prg_rom_cnt {
+        for _i in 0..prg_rom_cnt {
             let mut page = [0u8; 0x4000];
             for j in 0..0x4000 {
                 page[j] = bin[pos];
@@ -93,6 +94,7 @@ impl INesFile {
             title: vec![0],
         }
     }
+    #[allow(dead_code)]
     pub fn info(&self) {
         println!("has_trainer: {}", self.has_trainer);
         println!("mapper: {}", self.mapper);
@@ -106,22 +108,10 @@ impl INesFile {
         println!("has_trainer: {}", self.has_trainer);
         //println!("prg_rom: {:?}", self.prg_rom);
     }
-
+    #[allow(dead_code)]
     pub fn dump_prg_rom(&self) {
         let mut f = File::create("prg0.rom").unwrap();
         let buf = &self.prg_rom[0][..];
-        f.write_all(buf);
-
-        //f = File::create("prg1.rom").unwrap();
-        //buf = &self.prg_rom[7][..];
-        //f.write_all(buf);
+        f.write_all(buf).expect("failed to write to file");
     }
-}
-
-fn read_bytes(d: &Vec<u8>, start: &mut usize, len:usize) -> Vec<u8> {
-    let end: usize = *start + len;
-    let mut bytes: Vec<u8> = Vec::new();
-    bytes.extend_from_slice(&d[*start..end]);
-    *start = end;
-    bytes
 }

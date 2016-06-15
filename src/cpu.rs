@@ -375,6 +375,14 @@ impl CPU {
             0xC3 => { let v = self.indirect_x(); self.dcp(v) },
             0xD3 => { let v = self.indirect_y(); self.dcp(v) },
 
+            0xE7 => { let v = self.zp(); self.isc(v) },
+            0xF7 => { let v = self.zp_x(); self.isc(v) },
+            0xEF => { let v = self.abs(); self.isc(v) },
+            0xFF => { let v = self.abs_x(); self.isc(v) },
+            0xFB => { let v = self.abs_y(); self.isc(v) },
+            0xE3 => { let v = self.indirect_x(); self.isc(v) },
+            0xF3 => { let v = self.indirect_y(); self.isc(v) },
+
             0xA7 => { let v = self.zp(); self.lax(v) },
             0xB7 => { let v = self.zp_y(); self.lax(v) },
             0xAF => { let v = self.abs(); self.lax(v) },
@@ -382,12 +390,44 @@ impl CPU {
             0xA3 => { let v = self.indirect_x(); self.lax(v) },
             0xB3 => { let v = self.indirect_y(); self.lax(v) },
 
+            0x27 => { let v = self.zp(); self.rla(v) },
+            0x37 => { let v = self.zp_x(); self.rla(v) },
+            0x2F => { let v = self.abs(); self.rla(v) },
+            0x3F => { let v = self.abs_x(); self.rla(v) },
+            0x3B => { let v = self.abs_y(); self.rla(v) },
+            0x23 => { let v = self.indirect_x(); self.rla(v) },
+            0x33 => { let v = self.indirect_y(); self.rla(v) },
+
+            0x67 => { let v = self.zp(); self.rra(v) },
+            0x77 => { let v = self.zp_x(); self.rra(v) },
+            0x6F => { let v = self.abs(); self.rra(v) },
+            0x7F => { let v = self.abs_x(); self.rra(v) },
+            0x7B => { let v = self.abs_y(); self.rra(v) },
+            0x63 => { let v = self.indirect_x(); self.rra(v) },
+            0x73 => { let v = self.indirect_y(); self.rra(v) },
+
             0x87 => { let v = self.zp(); self.sax(v) },
             0x97 => { let v = self.zp_y(); self.sax(v) },
             0x8F => { let v = self.abs(); self.sax(v) },
             0x83 => { let v = self.indirect_x(); self.sax(v) },
 
             0xEB => { let v = self.imm(); self.sbc(v) },
+
+            0x07 => { let v = self.zp(); self.slo(v) },
+            0x17 => { let v = self.zp_x(); self.slo(v) },
+            0x0F => { let v = self.abs(); self.slo(v) },
+            0x1F => { let v = self.abs_x(); self.slo(v) },
+            0x1B => { let v = self.abs_y(); self.slo(v) },
+            0x03 => { let v = self.indirect_x(); self.slo(v) },
+            0x13 => { let v = self.indirect_y(); self.slo(v) },
+
+            0x47 => { let v = self.zp(); self.sre(v) },
+            0x57 => { let v = self.zp_x(); self.sre(v) },
+            0x4F => { let v = self.abs(); self.sre(v) },
+            0x5F => { let v = self.abs_x(); self.sre(v) },
+            0x5B => { let v = self.abs_y(); self.sre(v) },
+            0x43 => { let v = self.indirect_x(); self.sre(v) },
+            0x53 => { let v = self.indirect_y(); self.sre(v) },
 
             // Unofficial NOPs
             0x80 => { self.read_inc_pc(); },
@@ -739,7 +779,9 @@ impl CPU {
     }
     fn ora<AM: AddressingMode>(&mut self, am: AM) {
         let value = am.read(self);
+        print!("ORA: {:X} | {:X} = ", self.reg_a, value);
         let v = self.reg_a | value;
+        println!("{:X}", v);
         self.reg_a = self.set_zn(v);
     }
     fn bcs(&mut self) {
@@ -793,18 +835,134 @@ impl CPU {
 
     // Unofficial instructions
     fn dcp<AM: AddressingMode>(&mut self, am: AM) {
+        // TODO: this opcode does a DEC followed by a CMP.
+        // It would be nice to just call these two functions,
+        // but when passing 'am' to dec, ownership is transfered and isn't returned afterwards
+        // self.dec(am); <-- ownership of am moves to dec
+        // self.cmp(am); <-- we can't pass am as it has already moved to dec's ownership
+
+        // dec
         let value = am.read(self);
         let result = (value as i16 - 1) as u8;
         am.write(self, result);
 
+        // cmp
         let register = self.reg_a;
         self.compare(register, result);
+    }
+    fn isc<AM: AddressingMode>(&mut self, am: AM) {
+        // inc
+        let value = am.read(self);
+        let result = (value as u16 + 1) as u8;
+        am.write(self, result);
+
+        // sbc
+        let a = self.reg_a;
+        let m = am.read(self);
+        let mut result = a as i16 - m as i16;
+        if !self.reg_p.carry { result -= 1; }
+
+        if result & 0x100 == 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+
+        let result = result as u8;
+
+        if (a & 0x80) == 0 && (m & 0x80) != 0 && (result & 0x80) != 0 {
+            self.reg_p.overflow = true;
+        }
+        else if (a & 0x80) != 0 && (m & 0x80) == 0 && (result & 0x80) == 0 {
+            self.reg_p.overflow = true;
+        }
+        else {
+            self.reg_p.overflow = false;
+        }
+        self.reg_a = self.set_zn(result);
     }
     fn lax<AM: AddressingMode>(&mut self, am: AM) {
         let value = am.read(self);
         self.reg_a = value;
         self.reg_x = value;
         self.set_zn(value);
+    }
+    fn rla<AM: AddressingMode>(&mut self, am: AM) {
+        // rol
+        let value = am.read(self);
+        let bit0 = match self.reg_p.carry {
+            true => 0x01,
+            false => 0x00,
+        };
+        if value & 0x80 != 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+        let result = (value << 1) | bit0;
+        self.set_zn(result);
+        am.write(self, result);
+
+        // and
+        let value = self.reg_a & am.read(self);
+        self.reg_a = self.set_zn(value);
+    }
+    fn rra<AM: AddressingMode>(&mut self, am: AM) {
+        // ror
+        let value = am.read(self);
+        let bit7 = match self.reg_p.carry {
+            true => 0x80,
+            false => 0x00,
+        };
+        if value & 0x01 != 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+        let result = (value >> 1) | bit7;
+        self.set_zn(result);
+        am.write(self, result);
+
+        // adc
+        let value = am.read(self);
+        let mut tmp_result = self.reg_a as u16 + value as u16;
+
+        if self.reg_p.carry { tmp_result += 1; }
+
+        if tmp_result & 0x100 != 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+
+        let result = tmp_result as u8;
+
+        if (self.reg_a & 0x80) == 0 && (value & 0x80) == 0 && (result & 0x80) != 0 {
+            self.reg_p.overflow = true;
+        }
+        else if (self.reg_a & 0x80) != 0 && (value & 0x80) != 0 && (result & 0x80) == 0 {
+            self.reg_p.overflow = true;
+        }
+        else {
+            self.reg_p.overflow = false;
+        }
+        self.reg_a = self.set_zn(result);
+    }
+    fn slo<AM: AddressingMode>(&mut self, am: AM) {
+        // asl
+        let value = am.read(self);
+        if value & 0x80 != 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+        let result = value << 1;
+        self.set_zn(result);
+        am.write(self, result);
+
+        // ora
+        let value = am.read(self);
+        let v = self.reg_a | value;
+        self.reg_a = self.set_zn(v);
+    }
+    fn sre<AM: AddressingMode>(&mut self, am: AM) {
+        // lsr
+        let value = am.read(self);
+        if value & 0x01 != 0 { self.reg_p.carry = true; }
+        else { self.reg_p.carry = false; }
+        let result = value >> 1;
+        self.set_zn(result);
+        am.write(self, result);
+
+        // eor
+        let value = am.read(self);
+        let v = self.reg_a ^ value;
+        self.reg_a = self.set_zn(v);
     }
     fn sax<AM: AddressingMode>(&mut self, am: AM) {
         let value = self.reg_a & self.reg_x;
